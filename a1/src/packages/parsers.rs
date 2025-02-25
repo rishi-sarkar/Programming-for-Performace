@@ -19,7 +19,7 @@ impl Packages {
     pub fn parse_installed(&mut self, filename: &str) {
         let kv_regexp = Regex::new(KEYVAL_REGEX).unwrap();
         if let Ok(lines) = read_lines(filename) {
-            let mut current_package_num = 0;
+            let mut current_package_num: i32 = 0;
             for line in lines {
                 if let Ok(ip) = line {
                     match kv_regexp.captures(&ip) {
