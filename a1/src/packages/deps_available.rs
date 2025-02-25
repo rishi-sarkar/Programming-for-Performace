@@ -75,12 +75,10 @@ impl Packages {
                     let v = required_version
                         .parse::<debversion::DebianVersionNum>()
                         .unwrap();
-                    let iv = self
-                        .installed_debvers
-                        .get(&alternative.package_num)
-                        .unwrap();
-                    if !debversion::cmp_debversion_with_op(op, iv, &v) {
-                        result.push(self.get_package_name(alternative.package_num));
+                    if let Some(iv) = self.installed_debvers.get(&alternative.package_num) {
+                        if !debversion::cmp_debversion_with_op(op, iv, &v) {
+                            result.push(self.get_package_name(alternative.package_num));
+                        }
                     }
                 }
             }

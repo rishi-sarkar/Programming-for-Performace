@@ -91,19 +91,29 @@ impl Packages {
     }
 
     fn select_dependency(&self, dep: &Dependency) -> Option<i32> {
-        let mut best_package_num = None;
-        let mut best_version: Option<&DebianVersionNum> = None;
+        let mut best_package_num: Option<i32> = None;
+        let mut highest_version: Option<&DebianVersionNum> = None;
+
+        let wrong_version_packages: Vec<String> = self.dep_satisfied_by_wrong_version(dep)
+            .into_iter()
+            .map(|num| num.to_string())
+            .collect();
 
         for alternative in dep {
             let package_num = alternative.package_num;
-            let version = self.available_debvers.get(&package_num)?;
 
-            if best_version.is_none() || version > best_version.unwrap() {
-                best_package_num = Some(package_num);
-                best_version = Some(version);
+            let is_wrong_version_installed = wrong_version_packages.contains(&package_num.to_string());
+
+            if is_wrong_version_installed || self.available_debvers.contains_key(&package_num) {
+                if let Some(version) = self.available_debvers.get(&package_num) {
+                    if highest_version.is_none() || version > highest_version.unwrap() {
+                        best_package_num = Some(package_num);
+                        highest_version = Some(version);
+                    }
+                }
             }
         }
-
         return best_package_num;
     }
+
 }
