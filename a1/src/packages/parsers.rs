@@ -83,9 +83,9 @@ impl Packages {
                                     .insert(current_package_num, String::from(value));
                             }
                             if key == "Depends" {
-                                let mut dependencies = Vec::new();
+                                let mut dependencies = vec![];
                                 for dependency in value.split(",") {
-                                    let mut alternatives = Vec::new();
+                                    let mut alternatives = vec![];
                                     for alternative in dependency.split("|") {
                                         match pkgver_regexp.captures(alternative) {
                                             None => {}
