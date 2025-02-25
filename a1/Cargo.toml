@@ -1,0 +1,16 @@
+[package]
+name = "rpkg"
+version = "0.1.0"
+authors = ["Patrick Lam <prof.lam@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+petgraph = "0.4"
+regex = "1"
+itertools = "0.10"
+rustyline = "9.1.0"
+urlencoding = "2.1.0"
+csv = "1.1.6"
+curl = "0.4.42"
