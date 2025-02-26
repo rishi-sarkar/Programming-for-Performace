@@ -131,9 +131,9 @@ fn main() {
         Some(lf) => lf,
     };
     let cutoff = args.cutoff.unwrap();
+    let num_threads = if args.num_threads.unwrap() == 0 { 1 } else { args.num_threads.unwrap() };
 
-    let (double_dict, triple_dict, _all_token_list) =
-        packages::parser::parse_raw(input_fn.unwrap(), &log_format);
+    let (double_dict, triple_dict, _avll_token_list) = packages::parser::parse_raw(input_fn.unwrap(), &log_format, num_threads, args.single_map);
 
     view_double_and_triple_dicts(&double_dict, &triple_dict);
 
@@ -142,9 +142,7 @@ fn main() {
 
     //let sample_string = "Jun 23 23:30:05 combo sshd(pam_unix)[26190]: authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=218.22.3.51  user=root authentication".to_string();
     // add befores and afters to the sample string, yielding extended_sample_string
-    let mut sample_string_tokens = packages::parser::token_splitter(args.to_parse, 
-                                                                    &format_string_re,
-                                                                    &censored_regexps);
+    let mut sample_string_tokens = packages::parser::token_splitter(args.to_parse, &format_string_re, &censored_regexps);
     let mut befores = match (args.before, args.before_line) {
         (None, None) => vec![],
         (Some(b), None) => b.split_whitespace().map(|s| s.to_string()).collect(),

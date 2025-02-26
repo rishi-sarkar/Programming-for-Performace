@@ -10,3 +10,5 @@ clap = { version = "4.0.20", features = ["derive"] }
 clap_derive = "=4.0.20"
 clap_lex = "=0.3.0"
 regex = "1"
+dashmap = "6.1.0"
+threadpool = "1.8.1"
