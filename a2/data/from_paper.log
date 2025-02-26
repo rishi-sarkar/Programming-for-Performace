@@ -1,0 +1,9 @@
+17/06/09 20:10:46 INFO rdd.HadoopRDD: Input split: hdfs://hostname/2kSOSP.log:21876+7292
+17/06/09 20:10:46 INFO rdd.HadoopRDD: Input split: hdfs://hostname/2kSOSP.log:14584+7292
+17/06/09 20:10:46 INFO rdd.HadoopRDD: Input split: hdfs://hostname/2kSOSP.log:0+7292
+17/06/09 20:10:46 INFO rdd.HadoopRDD: Input split: hdfs://hostname/2kSOSP.log:7292+7292
+17/06/09 20:10:46 INFO rdd.HadoopRDD: Input split: hdfs://hostname/2kSOSP.log:29168+7292
+17/06/09 20:11:11 INFO storage.BlockManager: Found block rdd_42_20 locally
+17/06/09 20:11:11 INFO storage.BlockManager: Found block rdd_42_22 locally
+17/06/09 20:11:11 INFO storage.BlockManager: Found block rdd_42_23 locally
+17/06/09 20:11:11 INFO storage.BlockManager: Found block rdd_42_24 locally
