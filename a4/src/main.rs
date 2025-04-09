@@ -2,11 +2,11 @@
 use lab4::{
     checksum::Checksum, idea::IdeaGenerator, package::PackageDownloader, student::Student, Event,
 };
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::unbounded;
 use std::env;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::thread::spawn;
+use std::thread;
 
 struct Args {
     pub num_ideas: usize,
@@ -42,75 +42,70 @@ fn per_thread_amount(thread_idx: usize, total: usize, threads: usize) -> usize {
 }
 
 fn hackathon(args: &Args) {
-    // Use message-passing channel as event queue
-    let (send, recv) = unbounded::<Event>();
-    let mut threads = vec![];
-    // Checksums of all the generated ideas and packages
-    let mut idea_checksum = Arc::new(Mutex::new(Checksum::default()));
-    let mut pkg_checksum = Arc::new(Mutex::new(Checksum::default()));
-    // Checksums of the ideas and packages used by students to build ideas. Should match the
-    // previous checksums.
-    let mut student_idea_checksum = Arc::new(Mutex::new(Checksum::default()));
-    let mut student_pkg_checksum = Arc::new(Mutex::new(Checksum::default()));
+    // Create a single channel for events.
+    let (sender, receiver) = unbounded::<Event>();
 
-    // Spawn student threads
+    // Shared checksums for idea and package events.
+    let idea_checksum = Arc::new(Mutex::new(Checksum::default()));
+    let pkg_checksum = Arc::new(Mutex::new(Checksum::default()));
+    let student_idea_checksum = Arc::new(Mutex::new(Checksum::default()));
+    let student_pkg_checksum = Arc::new(Mutex::new(Checksum::default()));
+
+    let mut handles = Vec::new();
+
+    // Spawn student threads.
     for i in 0..args.num_students {
-        let mut student = Student::new(i, Sender::clone(&send), Receiver::clone(&recv));
+        let mut student = Student::new(i, sender.clone(), receiver.clone());
         let student_idea_checksum = Arc::clone(&student_idea_checksum);
         let student_pkg_checksum = Arc::clone(&student_pkg_checksum);
-        let thread = spawn(move || student.run(student_idea_checksum, student_pkg_checksum));
-        threads.push(thread);
+        handles.push(thread::spawn(move || {
+            student.run(student_idea_checksum, student_pkg_checksum)
+        }));
     }
 
-    // Spawn package downloader threads. Packages are distributed evenly across threads.
-    let mut start_idx = 0;
+    // Spawn package downloader threads. Distribute packages evenly across threads.
+    let mut pkg_start_idx = 0;
     for i in 0..args.num_pkg_gen {
         let num_pkgs = per_thread_amount(i, args.num_pkgs, args.num_pkg_gen);
-        let downloader = PackageDownloader::new(start_idx, num_pkgs, Sender::clone(&send));
+        let downloader = PackageDownloader::new(pkg_start_idx, num_pkgs, sender.clone());
+        pkg_start_idx += num_pkgs;
         let pkg_checksum = Arc::clone(&pkg_checksum);
-        start_idx += num_pkgs;
-
-        let thread = spawn(move || downloader.run(pkg_checksum));
-        threads.push(thread);
+        handles.push(thread::spawn(move || downloader.run(pkg_checksum)));
     }
-    assert_eq!(start_idx, args.num_pkgs);
+    assert_eq!(pkg_start_idx, args.num_pkgs);
 
-    // Spawn idea generator threads. Ideas and packages are distributed evenly across threads. In
-    // each thread, packages are distributed evenly across ideas.
-    let mut start_idx = 0;
+    // Spawn idea generator threads. Distribute ideas, packages, and students evenly.
+    let mut idea_start_idx = 0;
     for i in 0..args.num_idea_gen {
         let num_ideas = per_thread_amount(i, args.num_ideas, args.num_idea_gen);
         let num_pkgs = per_thread_amount(i, args.num_pkgs, args.num_idea_gen);
         let num_students = per_thread_amount(i, args.num_students, args.num_idea_gen);
         let generator = IdeaGenerator::new(
-            start_idx,
+            idea_start_idx,
             num_ideas,
             num_students,
             num_pkgs,
-            Sender::clone(&send),
+            sender.clone(),
         );
+        idea_start_idx += num_ideas;
         let idea_checksum = Arc::clone(&idea_checksum);
-        start_idx += num_ideas;
-
-        let thread = spawn(move || generator.run(idea_checksum));
-        threads.push(thread);
+        handles.push(thread::spawn(move || generator.run(idea_checksum)));
     }
-    assert_eq!(start_idx, args.num_ideas);
+    assert_eq!(idea_start_idx, args.num_ideas);
 
-    // Join all threads
-    threads.into_iter().for_each(|t| t.join().unwrap());
+    // Join all threads.
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
 
-    let idea = Arc::get_mut(&mut idea_checksum).unwrap().get_mut().unwrap();
-    let student_idea = Arc::get_mut(&mut student_idea_checksum)
-        .unwrap()
-        .get_mut()
-        .unwrap();
-    let pkg = Arc::get_mut(&mut pkg_checksum).unwrap().get_mut().unwrap();
-    let student_pkg = Arc::get_mut(&mut student_pkg_checksum)
-        .unwrap()
-        .get_mut()
-        .unwrap();
+    // Instead of using Arc::get_mut (which requires unique ownership), lock the mutex to access checksums.
+    let idea = idea_checksum.lock().unwrap().to_string();
+    let student_idea = student_idea_checksum.lock().unwrap().to_string();
+    let pkg = pkg_checksum.lock().unwrap().to_string();
+    let student_pkg = student_pkg_checksum.lock().unwrap().to_string();
 
-    println!("Global checksums:\nIdea Generator: {}\nStudent Idea: {}\nPackage Downloader: {}\nStudent Package: {}", 
-        idea, student_idea, pkg, student_pkg);
+    println!(
+        "Global checksums:\nIdea Generator: {}\nStudent Idea: {}\nPackage Downloader: {}\nStudent Package: {}",
+        idea, student_idea, pkg, student_pkg
+    );
 }

@@ -30,28 +30,42 @@ impl Student {
         pkg_checksum: &Arc<Mutex<Checksum>>,
     ) {
         if let Some(ref idea) = self.idea {
-            // Can only build ideas if we have acquired sufficient packages
             let pkgs_required = idea.num_pkg_required;
             if pkgs_required <= self.pkgs.len() {
-                let (mut idea_checksum, mut pkg_checksum) =
-                    (idea_checksum.lock().unwrap(), pkg_checksum.lock().unwrap());
+                // Lock both checksums at once to preserve the ordering of updates.
+                let pkgs_used = {
+                    let (mut idea_lock, mut pkg_lock) =
+                        (idea_checksum.lock().unwrap(), pkg_checksum.lock().unwrap());
+                    // First update the idea checksum.
+                    idea_lock.update(Checksum::with_sha256(&idea.name));
+                    // Then, drain the required packages and update the package checksum for each.
+                    let drained: Vec<Package> = self.pkgs.drain(0..pkgs_required).collect();
+                    for pkg in &drained {
+                        pkg_lock.update(Checksum::with_sha256(&pkg.name));
+                    }
+                    drained
+                };
 
-                // Update idea and package checksums
-                // All of the packages used in the update are deleted, along with the idea
-                idea_checksum.update(Checksum::with_sha256(&idea.name));
-                let pkgs_used = self.pkgs.drain(0..pkgs_required).collect::<Vec<_>>();
-                for pkg in pkgs_used.iter() {
-                    pkg_checksum.update(Checksum::with_sha256(&pkg.name));
+                // Build the output string in a buffer to minimize repeated stdout locking.
+                let mut output = String::with_capacity(256);
+                let idea_val = {
+                    let lock = idea_checksum.lock().unwrap();
+                    format!("{}", *lock)
+                };
+                let pkg_val = {
+                    let lock = pkg_checksum.lock().unwrap();
+                    format!("{}", *lock)
+                };
+                output.push_str(&format!(
+                    "\nStudent {} built {} using {} packages\nIdea checksum: {}\nPackage checksum: {}",
+                    self.id, idea.name, pkgs_required, idea_val, pkg_val
+                ));
+                for pkg in &pkgs_used {
+                    output.push_str(&format!("\n> {}", pkg.name));
                 }
-
-                // We want the subsequent prints to be together, so we lock stdout
                 let stdout = stdout();
                 let mut handle = stdout.lock();
-                writeln!(handle, "\nStudent {} built {} using {} packages\nIdea checksum: {}\nPackage checksum: {}",
-                    self.id, idea.name, pkgs_required, idea_checksum, pkg_checksum).unwrap();
-                for pkg in pkgs_used.iter() {
-                    writeln!(handle, "> {}", pkg.name).unwrap();
-                }
+                writeln!(handle, "{}", output).unwrap();
 
                 self.idea = None;
             }
@@ -63,8 +77,6 @@ impl Student {
             let event = self.event_recv.recv().unwrap();
             match event {
                 Event::NewIdea(idea) => {
-                    // If the student is not working on an idea, then they will take the new idea
-                    // and attempt to build it. Otherwise, the idea is skipped.
                     if self.idea.is_none() {
                         self.idea = Some(idea);
                         self.build_idea(&idea_checksum, &pkg_checksum);
@@ -73,29 +85,18 @@ impl Student {
                         self.skipped_idea = true;
                     }
                 }
-
                 Event::DownloadComplete(pkg) => {
-                    // Getting a new package means the current idea may now be buildable, so the
-                    // student attempts to build it
                     self.pkgs.push(pkg);
                     self.build_idea(&idea_checksum, &pkg_checksum);
                 }
-
                 Event::OutOfIdeas => {
-                    // If an idea was skipped, it may still be in the event queue.
-                    // If the student has an unfinished idea, they have to finish it, since they
-                    // might be the last student remaining.
-                    // In both these cases, we can't terminate, so the termination event is
-                    // deferred ti the back of the queue.
                     if self.skipped_idea || self.idea.is_some() {
                         self.event_sender.send(Event::OutOfIdeas).unwrap();
                         self.skipped_idea = false;
                     } else {
-                        // Any unused packages are returned to the queue upon termination
+                        // Return any unused packages to the queue.
                         for pkg in self.pkgs.drain(..) {
-                            self.event_sender
-                                .send(Event::DownloadComplete(pkg))
-                                .unwrap();
+                            self.event_sender.send(Event::DownloadComplete(pkg)).unwrap();
                         }
                         return;
                     }

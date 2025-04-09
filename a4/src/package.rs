@@ -24,21 +24,22 @@ impl PackageDownloader {
     }
 
     pub fn run(&self, pkg_checksum: Arc<Mutex<Checksum>>) {
-        // Generate a set of packages and place them into the event queue
-        // Update the package checksum with each package name
-        for i in 0..self.num_pkgs {
-            let name = fs::read_to_string("data/packages.txt")
-                .unwrap()
-                .lines()
-                .cycle()
-                .nth(self.pkg_start_idx + i)
-                .unwrap()
-                .to_owned();
+        // Read the file once and collect all package names.
+        let file_contents = fs::read_to_string("data/packages.txt")
+            .expect("Failed to read packages file");
+        let lines: Vec<&str> = file_contents.lines().collect();
+        let total_lines = lines.len();
 
-            pkg_checksum
-                .lock()
-                .unwrap()
-                .update(Checksum::with_sha256(&name));
+        // Process each package by indexing into the pre-read lines vector.
+        for i in 0..self.num_pkgs {
+            let index = (self.pkg_start_idx + i) % total_lines;
+            let name = lines[index].to_owned();
+
+            // Update checksum within a short lock scope.
+            {
+                let mut checksum = pkg_checksum.lock().unwrap();
+                checksum.update(Checksum::with_sha256(&name));
+            }
             self.event_sender
                 .send(Event::DownloadComplete(Package { name }))
                 .unwrap();
