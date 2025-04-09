@@ -28,18 +28,26 @@ impl PackageDownloader {
             .expect("Failed to read packages file");
         let lines: Vec<&str> = file_contents.lines().collect();
         let total_lines = lines.len();
-
+    
+        // Accumulate checksum locally instead of locking every iteration.
+        let mut local_checksum = Checksum::default();
+    
         for i in 0..self.num_pkgs {
             let index = (self.pkg_start_idx + i) % total_lines;
             let name = lines[index].to_owned();
-
-            {
-                let mut checksum = pkg_checksum.lock().unwrap();
-                checksum.update(Checksum::with_sha256(&name));
-            }
+    
+            // Update local checksum.
+            local_checksum.update(Checksum::with_sha256(&name));
+    
+            // Send event without any extra locking overhead.
             self.event_sender
                 .send(Event::DownloadComplete(Package { name }))
                 .unwrap();
         }
+    
+        // Once done, update the global checksum in one lock.
+        let mut global_checksum = pkg_checksum.lock().unwrap();
+        global_checksum.update(local_checksum);
     }
+    
 }
