@@ -5,7 +5,6 @@ use std::fmt;
 pub struct Checksum(Option<[u8; 32]>);
 
 impl Checksum {
-    // Initialize the checksum with the SHA256 hash of the input string
     pub fn with_sha256(input: &str) -> Self {
         let digest = Sha256::digest(input.as_bytes());
         let mut arr = [0u8; 32];
@@ -13,7 +12,6 @@ impl Checksum {
         Self(Some(arr))
     }
 
-    // XOR the two checksums
     pub fn update(&mut self, rhs: Self) {
         match (self.0.as_mut(), rhs.0) {
             (std::option::Option::None, _) => self.0 = rhs.0,
@@ -26,7 +24,6 @@ impl Checksum {
         }
     }
 
-    // Optional: merge another checksum into self, if you prefer a more explicit name.
     pub fn merge(&mut self, other: Self) {
         self.update(other);
     }

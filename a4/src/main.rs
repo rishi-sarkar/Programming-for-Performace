@@ -42,10 +42,8 @@ fn per_thread_amount(thread_idx: usize, total: usize, threads: usize) -> usize {
 }
 
 fn hackathon(args: &Args) {
-    // Create a single channel for events.
     let (sender, receiver) = unbounded::<Event>();
 
-    // Shared checksums for idea and package events.
     let idea_checksum = Arc::new(Mutex::new(Checksum::default()));
     let pkg_checksum = Arc::new(Mutex::new(Checksum::default()));
     let student_idea_checksum = Arc::new(Mutex::new(Checksum::default()));
@@ -53,7 +51,6 @@ fn hackathon(args: &Args) {
 
     let mut handles = Vec::new();
 
-    // Spawn student threads.
     for i in 0..args.num_students {
         let mut student = Student::new(i, sender.clone(), receiver.clone());
         let student_idea_checksum = Arc::clone(&student_idea_checksum);
@@ -63,7 +60,6 @@ fn hackathon(args: &Args) {
         }));
     }
 
-    // Spawn package downloader threads. Distribute packages evenly across threads.
     let mut pkg_start_idx = 0;
     for i in 0..args.num_pkg_gen {
         let num_pkgs = per_thread_amount(i, args.num_pkgs, args.num_pkg_gen);
@@ -74,7 +70,6 @@ fn hackathon(args: &Args) {
     }
     assert_eq!(pkg_start_idx, args.num_pkgs);
 
-    // Spawn idea generator threads. Distribute ideas, packages, and students evenly.
     let mut idea_start_idx = 0;
     for i in 0..args.num_idea_gen {
         let num_ideas = per_thread_amount(i, args.num_ideas, args.num_idea_gen);
@@ -93,12 +88,10 @@ fn hackathon(args: &Args) {
     }
     assert_eq!(idea_start_idx, args.num_ideas);
 
-    // Join all threads.
     for handle in handles {
         handle.join().expect("Thread panicked");
     }
 
-    // Instead of using Arc::get_mut (which requires unique ownership), lock the mutex to access checksums.
     let idea = idea_checksum.lock().unwrap().to_string();
     let student_idea = student_idea_checksum.lock().unwrap().to_string();
     let pkg = pkg_checksum.lock().unwrap().to_string();

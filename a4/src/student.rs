@@ -1,6 +1,6 @@
 use super::{checksum::Checksum, idea::Idea, package::Package, Event};
 use crossbeam::channel::{Receiver, Sender};
-use std::io::{stdout, Write};
+// use std::io::{stdout, Write};
 use std::sync::{Arc, Mutex};
 
 pub struct Student {
@@ -26,46 +26,32 @@ impl Student {
 
     fn build_idea(
         &mut self,
-        idea_checksum: &Arc<Mutex<Checksum>>,
-        pkg_checksum: &Arc<Mutex<Checksum>>,
+        local_idea_checksum: &mut Checksum,
+        local_pkg_checksum: &mut Checksum,
     ) {
         if let Some(ref idea) = self.idea {
             let pkgs_required = idea.num_pkg_required;
             if pkgs_required <= self.pkgs.len() {
-                // Lock both checksums at once to preserve the ordering of updates.
-                let pkgs_used = {
-                    let (mut idea_lock, mut pkg_lock) =
-                        (idea_checksum.lock().unwrap(), pkg_checksum.lock().unwrap());
-                    // First update the idea checksum.
-                    idea_lock.update(Checksum::with_sha256(&idea.name));
-                    // Then, drain the required packages and update the package checksum for each.
-                    let drained: Vec<Package> = self.pkgs.drain(0..pkgs_required).collect();
-                    for pkg in &drained {
-                        pkg_lock.update(Checksum::with_sha256(&pkg.name));
-                    }
-                    drained
-                };
-
-                // Build the output string in a buffer to minimize repeated stdout locking.
-                let mut output = String::with_capacity(256);
-                let idea_val = {
-                    let lock = idea_checksum.lock().unwrap();
-                    format!("{}", *lock)
-                };
-                let pkg_val = {
-                    let lock = pkg_checksum.lock().unwrap();
-                    format!("{}", *lock)
-                };
-                output.push_str(&format!(
-                    "\nStudent {} built {} using {} packages\nIdea checksum: {}\nPackage checksum: {}",
-                    self.id, idea.name, pkgs_required, idea_val, pkg_val
-                ));
-                for pkg in &pkgs_used {
-                    output.push_str(&format!("\n> {}", pkg.name));
+                local_idea_checksum.update(Checksum::with_sha256(&idea.name));
+                let drained: Vec<Package> = self.pkgs.drain(0..pkgs_required).collect();
+                for pkg in &drained {
+                    local_pkg_checksum.update(Checksum::with_sha256(&pkg.name));
                 }
-                let stdout = stdout();
-                let mut handle = stdout.lock();
-                writeln!(handle, "{}", output).unwrap();
+
+                // // Build the output string using the local accumulators.
+                // let mut output = String::with_capacity(256);
+                // let idea_val = format!("{}", local_idea_checksum);
+                // let pkg_val = format!("{}", local_pkg_checksum);
+                // output.push_str(&format!(
+                //     "\nStudent {} built {} using {} packages\nIdea checksum: {}\nPackage checksum: {}",
+                //     self.id, idea.name, pkgs_required, idea_val, pkg_val
+                // ));
+                // for pkg in &drained {
+                //     output.push_str(&format!("\n> {}", pkg.name));
+                // }
+                // let stdout = stdout();
+                // let mut handle = stdout.lock();
+                // writeln!(handle, "{}", output).unwrap();
 
                 self.idea = None;
             }
@@ -73,13 +59,16 @@ impl Student {
     }
 
     pub fn run(&mut self, idea_checksum: Arc<Mutex<Checksum>>, pkg_checksum: Arc<Mutex<Checksum>>) {
+        let mut local_idea_checksum = Checksum::default();
+        let mut local_pkg_checksum = Checksum::default();
+
         loop {
             let event = self.event_recv.recv().unwrap();
             match event {
                 Event::NewIdea(idea) => {
                     if self.idea.is_none() {
                         self.idea = Some(idea);
-                        self.build_idea(&idea_checksum, &pkg_checksum);
+                        self.build_idea(&mut local_idea_checksum, &mut local_pkg_checksum);
                     } else {
                         self.event_sender.send(Event::NewIdea(idea)).unwrap();
                         self.skipped_idea = true;
@@ -87,16 +76,25 @@ impl Student {
                 }
                 Event::DownloadComplete(pkg) => {
                     self.pkgs.push(pkg);
-                    self.build_idea(&idea_checksum, &pkg_checksum);
+                    self.build_idea(&mut local_idea_checksum, &mut local_pkg_checksum);
                 }
                 Event::OutOfIdeas => {
                     if self.skipped_idea || self.idea.is_some() {
                         self.event_sender.send(Event::OutOfIdeas).unwrap();
                         self.skipped_idea = false;
                     } else {
-                        // Return any unused packages to the queue.
                         for pkg in self.pkgs.drain(..) {
-                            self.event_sender.send(Event::DownloadComplete(pkg)).unwrap();
+                            self.event_sender
+                                .send(Event::DownloadComplete(pkg))
+                                .unwrap();
+                        }
+                        {
+                            let mut global_idea = idea_checksum.lock().unwrap();
+                            global_idea.merge(local_idea_checksum);
+                        }
+                        {
+                            let mut global_pkg = pkg_checksum.lock().unwrap();
+                            global_pkg.merge(local_pkg_checksum);
                         }
                         return;
                     }
